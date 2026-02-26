@@ -1,11 +1,1167 @@
-<!DOCTYPE html>
-<html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>PakePlus</title>
-    </head>
-    <body>
-        PakePlus
-    </body>
-</html>
+<html lang="zh-CN"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>电话号码识别</title>
+  <!-- Tailwind CSS v3 -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Font Awesome -->
+  <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  <!-- Tesseract.js -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.3/dist/tesseract.min.js"></script>
+  
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#007AFF',
+            secondary: '#34C759',
+            danger: '#FF3B30',
+            dark: '#1C1C1E',
+            light: '#F2F2F7'
+          },
+          fontFamily: {
+            sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif']
+          }
+        }
+      }
+    }
+  </script>
+  
+  <style type="text/tailwindcss">
+    @layer utilities {
+      .content-auto {
+        content-visibility: auto;
+      }
+      
+      .camera-container {
+        height: calc(100vh - 12rem);
+      }
+      
+      .scanner-frame {
+        border: 2px solid white;
+        border-radius: 12px;
+        box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.5);
+      }
+      
+      .scan-line {
+        height: 2px;
+        background: linear-gradient(90deg, transparent, #007AFF, transparent);
+        animation: scan 2s linear infinite;
+      }
+      
+      @keyframes scan {
+        0% { transform: translateY(0); }
+        50% { transform: translateY(100%); }
+        100% { transform: translateY(0); }
+      }
+      
+      .pulse-button {
+        animation: pulse 1.5s infinite;
+      }
+      
+      @keyframes pulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+        100% { transform: scale(1); }
+      }
+      
+      .tab-active {
+        color: #007AFF;
+        border-bottom: 2px solid #007AFF;
+      }
+      
+      .history-item {
+        transition: transform 0.2s, box-shadow 0.2s;
+      }
+      
+      .history-item:active {
+        transform: scale(0.98);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+    }
+  </style>
+</head>
+<body class="bg-light text-dark font-sans">
+  <!-- 主容器 -->
+  <div id="app" class="max-w-md mx-auto h-screen bg-white shadow-lg relative overflow-hidden">
+    <!-- 拍照识别页面 -->
+    <div id="camera-page" class="page active">
+      <!-- 顶部导航 -->
+      <div class="flex justify-between items-center p-4 border-b">
+        <h1 class="text-xl font-bold">电话号码识别</h1>
+        <div class="flex space-x-4">
+          <button id="gallery-btn" class="text-primary">
+            <i class="fa fa-image text-xl"></i>
+          </button>
+          <button id="settings-btn" class="text-gray-600">
+            <i class="fa fa-cog text-xl"></i>
+          </button>
+        </div>
+      </div>
+      
+      <!-- 摄像头容器 -->
+      <div class="camera-container relative">
+        <video id="video" class="w-full h-full object-cover" autoplay="" playsinline=""></video>
+        <canvas id="canvas" class="hidden w-full h-full"></canvas>
+        
+        <!-- 扫描框 -->
+        <div class="absolute inset-0 flex items-center justify-center">
+          <div class="scanner-frame w-4/5 h-1/2 relative">
+            <div class="scan-line absolute w-full"></div>
+            
+            <!-- 扫描框四角 -->
+            <div class="absolute top-0 left-0 w-8 h-8 border-t-2 border-l-2 border-white"></div>
+            <div class="absolute top-0 right-0 w-8 h-8 border-t-2 border-r-2 border-white"></div>
+            <div class="absolute bottom-0 left-0 w-8 h-8 border-b-2 border-l-2 border-white"></div>
+            <div class="absolute bottom-0 right-0 w-8 h-8 border-b-2 border-r-2 border-white"></div>
+          </div>
+        </div>
+        
+        <!-- 闪光灯按钮 -->
+        <button id="flash-btn" class="absolute top-4 right-4 bg-black bg-opacity-50 text-white rounded-full w-10 h-10 flex items-center justify-center">
+          <i class="fa fa-bolt"></i>
+        </button>
+      </div>
+      
+      <!-- 底部操作区 -->
+      <div class="p-4 border-t">
+        <button id="capture-btn" class="w-full py-3 bg-primary text-white rounded-full font-bold pulse-button flex items-center justify-center">
+          <i class="fa fa-camera mr-2"></i> 扫描识别
+        </button>
+      </div>
+    </div>
+    
+    <!-- 识别结果页面 -->
+    <div id="result-page" class="page hidden">
+      <!-- 顶部导航 -->
+      <div class="flex justify-between items-center p-4 border-b">
+        <button id="back-to-camera" class="text-primary">
+          <i class="fa fa-arrow-left text-xl"></i>
+        </button>
+        <h1 class="text-xl font-bold">识别结果</h1>
+        <div class="w-6"></div> <!-- 占位，保持标题居中 -->
+      </div>
+      
+      <!-- 结果内容 -->
+      <div class="p-6">
+        <div class="bg-gray-100 rounded-lg p-4 mb-6">
+          <h2 class="text-lg font-semibold mb-2">识别的电话号码</h2>
+          <p id="recognized-number" class="text-2xl font-mono">138-1234-5678</p>
+        </div>
+        
+        <div id="contact-match" class="bg-gray-100 rounded-lg p-4 mb-6">
+          <h2 class="text-lg font-semibold mb-2">联系人匹配</h2>
+          <div class="flex items-center">
+            <div class="w-12 h-12 rounded-full bg-primary text-white flex items-center justify-center text-2xl mr-4">
+              <span id="contact-initial">张</span>
+            </div>
+            <div>
+              <p id="contact-name" class="text-xl font-semibold">张三</p>
+              <p class="text-gray-600">已存在于通讯录</p>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 操作按钮 -->
+        <div class="grid grid-cols-2 gap-4">
+          <button id="call-btn" class="py-3 bg-green-500 text-white rounded-lg font-bold flex items-center justify-center">
+            <i class="fa fa-phone mr-2"></i> 拨打电话
+          </button>
+          <button id="save-btn" class="py-3 bg-primary text-white rounded-lg font-bold flex items-center justify-center">
+            <i class="fa fa-save mr-2"></i> 保存到通讯录
+          </button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 历史记录页面 -->
+    <div id="history-page" class="page hidden">
+      <!-- 顶部导航 -->
+      <div class="flex justify-between items-center p-4 border-b">
+        <div class="w-6"></div> <!-- 占位，保持标题居中 -->
+        <h1 class="text-xl font-bold">历史记录</h1>
+        <button id="clear-history-btn" class="text-primary">
+          <i class="fa fa-trash text-xl"></i>
+        </button>
+      </div>
+      
+      <!-- 历史记录列表 -->
+      <div id="history-list" class="p-4">
+        <!-- 历史记录项将通过JavaScript动态添加 -->
+        <div class="history-item bg-white rounded-lg shadow p-4 mb-4">
+          <div class="flex justify-between items-start">
+            <div>
+              <p class="text-lg font-semibold">138-1234-5678</p>
+              <p class="text-gray-600">张三</p>
+            </div>
+            <p class="text-gray-500 text-sm">今天 14:30</p>
+          </div>
+        </div>
+        
+        <div class="history-item bg-white rounded-lg shadow p-4 mb-4">
+          <div class="flex justify-between items-start">
+            <div>
+              <p class="text-lg font-semibold">021-6543-2109</p>
+              <p class="text-gray-600">未知联系人</p>
+            </div>
+            <p class="text-gray-500 text-sm">昨天 09:15</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 设置页面 -->
+    <div id="settings-page" class="page hidden">
+      <!-- 顶部导航 -->
+      <div class="flex justify-between items-center p-4 border-b">
+        <button id="back-from-settings" class="text-primary">
+          <i class="fa fa-arrow-left text-xl"></i>
+        </button>
+        <h1 class="text-xl font-bold">设置</h1>
+        <div class="w-6"></div> <!-- 占位，保持标题居中 -->
+      </div>
+      
+      <!-- 设置选项 -->
+      <div class="p-4">
+        <div class="bg-white rounded-lg shadow p-4 mb-4">
+          <h2 class="text-lg font-semibold mb-4">通讯录</h2>
+          <button id="import-contacts-btn" class="w-full py-3 bg-primary text-white rounded-lg font-bold flex items-center justify-center">
+            <i class="fa fa-download mr-2"></i> 导入通讯录
+          </button>
+          <div id="import-progress" class="mt-4 hidden">
+            <div class="w-full bg-gray-200 rounded-full h-2.5">
+              <div id="progress-bar" class="bg-primary h-2.5 rounded-full" style="width: 0%"></div>
+            </div>
+            <p id="progress-text" class="text-sm text-gray-600 mt-2">导入中... 0%</p>
+          </div>
+        </div>
+        
+        <div class="bg-white rounded-lg shadow p-4 mb-4">
+          <h2 class="text-lg font-semibold mb-4">识别设置</h2>
+          <div class="flex items-center justify-between mb-4">
+            <span>自动识别</span>
+            <label class="switch">
+              <input type="checkbox" id="auto-recog-toggle" checked="">
+              <span class="slider round"></span>
+            </label>
+          </div>
+          <div class="flex items-center justify-between">
+            <span>识别声音</span>
+            <label class="switch">
+              <input type="checkbox" id="sound-toggle" checked="">
+              <span class="slider round"></span>
+            </label>
+          </div>
+        </div>
+        
+        <div class="bg-white rounded-lg shadow p-4">
+          <h2 class="text-lg font-semibold mb-4">关于</h2>
+          <p class="text-gray-600 mb-2">电话号码识别 v1.0.0</p>
+          <p class="text-gray-600">离线OCR技术，保护您的隐私</p>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 底部导航栏 -->
+    <div class="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t flex justify-around py-2 z-10">
+      <button id="nav-camera" class="nav-btn flex flex-col items-center p-2 w-1/3 tab-active">
+        <i class="fa fa-camera text-xl"></i>
+        <span class="text-xs mt-1">拍照</span>
+      </button>
+      <button id="nav-history" class="nav-btn flex flex-col items-center p-2 w-1/3">
+        <i class="fa fa-history text-xl"></i>
+        <span class="text-xs mt-1">历史</span>
+      </button>
+      <button id="nav-settings" class="nav-btn flex flex-col items-center p-2 w-1/3">
+        <i class="fa fa-cog text-xl"></i>
+        <span class="text-xs mt-1">设置</span>
+      </button>
+    </div>
+    
+    <!-- 权限提示弹窗 -->
+    <div id="permission-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+      <div class="bg-white rounded-lg p-6 w-5/6 max-w-sm">
+        <h2 class="text-xl font-bold mb-4">需要摄像头权限</h2>
+        <p class="text-gray-600 mb-6">为了识别电话号码，我们需要访问您的摄像头。所有识别过程均在本地完成，不会上传您的任何数据。</p>
+        <button id="grant-permission-btn" class="w-full py-3 bg-primary text-white rounded-lg font-bold">
+          授予权限
+        </button>
+      </div>
+    </div>
+    
+    <!-- 加载提示 -->
+    <div id="loading-indicator" class="fixed inset-0 bg-black bg-opacity-50 flex flex-col items-center justify-center z-50 hidden">
+      <div class="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
+      <p id="loading-text" class="text-white text-lg">正在加载OCR引擎...</p>
+    </div>
+  </div>
+
+  <script>
+    // 全局变量
+    let stream = null;
+    let tesseractWorker = null;
+    let db = null;
+    let isAutoRecognizing = true;
+    let recognitionInterval = null;
+    
+    // DOM元素
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const captureBtn = document.getElementById('capture-btn');
+    const flashBtn = document.getElementById('flash-btn');
+    const galleryBtn = document.getElementById('gallery-btn');
+    const settingsBtn = document.getElementById('settings-btn');
+    const backToCameraBtn = document.getElementById('back-to-camera');
+    const callBtn = document.getElementById('call-btn');
+    const saveBtn = document.getElementById('save-btn');
+    const navCameraBtn = document.getElementById('nav-camera');
+    const navHistoryBtn = document.getElementById('nav-history');
+    const navSettingsBtn = document.getElementById('nav-settings');
+    const backFromSettingsBtn = document.getElementById('back-from-settings');
+    const importContactsBtn = document.getElementById('import-contacts-btn');
+    const clearHistoryBtn = document.getElementById('clear-history-btn');
+    const grantPermissionBtn = document.getElementById('grant-permission-btn');
+    const autoRecogToggle = document.getElementById('auto-recog-toggle');
+    const soundToggle = document.getElementById('sound-toggle');
+    
+    const cameraPage = document.getElementById('camera-page');
+    const resultPage = document.getElementById('result-page');
+    const historyPage = document.getElementById('history-page');
+    const settingsPage = document.getElementById('settings-page');
+    const permissionModal = document.getElementById('permission-modal');
+    const loadingIndicator = document.getElementById('loading-indicator');
+    const loadingText = document.getElementById('loading-text');
+    const importProgress = document.getElementById('import-progress');
+    const progressBar = document.getElementById('progress-bar');
+    const progressText = document.getElementById('progress-text');
+    
+    const recognizedNumberEl = document.getElementById('recognized-number');
+    const contactMatchEl = document.getElementById('contact-match');
+    const contactInitialEl = document.getElementById('contact-initial');
+    const contactNameEl = document.getElementById('contact-name');
+    const historyListEl = document.getElementById('history-list');
+    
+    // 页面加载完成后初始化
+    document.addEventListener('DOMContentLoaded', async () => {
+      // 初始化数据库
+      initDatabase();
+      
+      // 初始化Tesseract.js
+      initTesseract();
+      
+      // 检查摄像头权限
+      checkCameraPermission();
+      
+      // 加载历史记录
+      loadHistory();
+      
+      // 绑定事件监听器
+      bindEventListeners();
+    });
+    
+    // 初始化IndexedDB数据库
+    function initDatabase() {
+      const request = indexedDB.open('PhoneNumberRecognizer', 1);
+      
+      request.onupgradeneeded = (event) => {
+        db = event.target.result;
+        
+        // 创建通讯录存储
+        if (!db.objectStoreNames.contains('contacts')) {
+          const contactStore = db.createObjectStore('contacts', { keyPath: 'id' });
+          contactStore.createIndex('phone', 'phone', { unique: false });
+        }
+        
+        // 创建历史记录存储
+        if (!db.objectStoreNames.contains('history')) {
+          const historyStore = db.createObjectStore('history', { keyPath: 'id', autoIncrement: true });
+          historyStore.createIndex('timestamp', 'timestamp', { unique: false });
+        }
+      };
+      
+      request.onsuccess = (event) => {
+        db = event.target.result;
+        console.log('数据库初始化成功');
+      };
+      
+      request.onerror = (event) => {
+        console.error('数据库初始化失败:', event.target.error);
+      };
+    }
+    
+    // 初始化Tesseract.js
+    function initTesseract() {
+      loadingText.textContent = '正在加载OCR引擎...';
+      loadingIndicator.classList.remove('hidden');
+      
+      // 添加超时处理
+      const timeoutId = setTimeout(() => {
+        if (loadingIndicator.classList.contains('hidden') === false) {
+          console.warn('Tesseract加载超时，使用备用模式');
+          loadingText.textContent = 'OCR引擎加载超时';
+          // 5秒后自动隐藏加载提示，允许用户继续使用应用
+          setTimeout(() => {
+            loadingIndicator.classList.add('hidden');
+            alert('OCR引擎加载超时，部分功能可能受限。请检查网络连接后重试。');
+          }, 2000);
+        }
+      }, 15000); // 15秒超时
+      
+      Tesseract.createWorker({
+        logger: (progress) => {
+          console.log('Tesseract加载进度:', progress);
+          if (progress.status === 'loading tesseract core') {
+            loadingText.textContent = '正在加载OCR引擎...';
+          } else if (progress.status === 'loading language traineddata') {
+            loadingText.textContent = '正在加载语言数据...';
+          } else if (progress.status === 'initializing tesseract') {
+            loadingText.textContent = '正在初始化...';
+          } else if (progress.status === 'recognizing') {
+            loadingText.textContent = '正在识别...';
+          }
+          
+          // 显示更详细的进度信息
+          if (progress.progress && progress.progress > 0) {
+            const percentage = Math.round(progress.progress * 100);
+            loadingText.textContent += ` (${percentage}%)`;
+          }
+        }
+      }).then(worker => {
+        clearTimeout(timeoutId); // 清除超时定时器
+        tesseractWorker = worker;
+        console.log('Tesseract Worker创建成功');
+        return worker.loadLanguage('chi_sim+eng');
+      }).then(() => {
+        console.log('语言数据加载成功');
+        return tesseractWorker.initialize('chi_sim+eng');
+      }).then(() => {
+        console.log('Tesseract初始化成功');
+        loadingIndicator.classList.add('hidden');
+      }).catch(error => {
+        clearTimeout(timeoutId); // 清除超时定时器
+        console.error('Tesseract初始化失败:', error);
+        loadingText.textContent = 'OCR引擎加载失败';
+        
+        // 提供重试选项
+        setTimeout(() => {
+          if (confirm('OCR引擎加载失败，是否重试？')) {
+            initTesseract();
+          } else {
+            loadingIndicator.classList.add('hidden');
+          }
+        }, 1000);
+      });
+    }
+    
+    // 检查摄像头权限
+    function checkCameraPermission() {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        navigator.mediaDevices.getUserMedia({ video: true })
+          .then(mediaStream => {
+            stream = mediaStream;
+            video.srcObject = stream;
+            startAutoRecognition();
+          })
+          .catch(error => {
+            console.error('获取摄像头权限失败:', error);
+            permissionModal.classList.remove('hidden');
+          });
+      } else {
+        alert('您的浏览器不支持摄像头访问');
+      }
+    }
+    
+    // 绑定事件监听器
+    function bindEventListeners() {
+      // 拍照按钮
+      captureBtn.addEventListener('click', captureAndRecognize);
+      
+      // 闪光灯按钮
+      flashBtn.addEventListener('click', toggleFlash);
+      
+      // 相册导入按钮
+      galleryBtn.addEventListener('click', () => {
+        alert('相册导入功能即将上线');
+      });
+      
+      // 设置按钮
+      settingsBtn.addEventListener('click', () => {
+        showPage(settingsPage);
+      });
+      
+      // 返回拍照页面按钮
+      backToCameraBtn.addEventListener('click', () => {
+        showPage(cameraPage);
+      });
+      
+      // 拨打电话按钮
+      callBtn.addEventListener('click', () => {
+        const number = recognizedNumberEl.textContent.replace(/[^\d]/g, '');
+        window.location.href = `tel:${number}`;
+      });
+      
+      // 保存到通讯录按钮
+      saveBtn.addEventListener('click', () => {
+        const number = recognizedNumberEl.textContent;
+        saveToContacts(number);
+      });
+      
+      // 底部导航按钮
+      navCameraBtn.addEventListener('click', () => {
+        showPage(cameraPage);
+        setActiveTab(navCameraBtn);
+      });
+      
+      navHistoryBtn.addEventListener('click', () => {
+        showPage(historyPage);
+        setActiveTab(navHistoryBtn);
+      });
+      
+      navSettingsBtn.addEventListener('click', () => {
+        showPage(settingsPage);
+        setActiveTab(navSettingsBtn);
+      });
+      
+      // 返回按钮（从设置页面）
+      backFromSettingsBtn.addEventListener('click', () => {
+        showPage(cameraPage);
+        setActiveTab(navCameraBtn);
+      });
+      
+      // 导入通讯录按钮
+      importContactsBtn.addEventListener('click', importContacts);
+      
+      // 清除历史记录按钮
+      clearHistoryBtn.addEventListener('click', clearHistory);
+      
+      // 授予权限按钮
+      grantPermissionBtn.addEventListener('click', () => {
+        permissionModal.classList.add('hidden');
+        checkCameraPermission();
+      });
+      
+      // 自动识别开关
+      autoRecogToggle.addEventListener('change', (e) => {
+        isAutoRecognizing = e.target.checked;
+        if (isAutoRecognizing) {
+          startAutoRecognition();
+        } else {
+          stopAutoRecognition();
+        }
+      });
+      
+      // 识别声音开关
+      soundToggle.addEventListener('change', (e) => {
+        localStorage.setItem('soundEnabled', e.target.checked);
+      });
+    }
+    
+    // 显示指定页面
+    function showPage(page) {
+      // 隐藏所有页面
+      document.querySelectorAll('.page').forEach(p => {
+        p.classList.add('hidden');
+      });
+      
+      // 显示指定页面
+      page.classList.remove('hidden');
+    }
+    
+    // 设置活动标签
+    function setActiveTab(tab) {
+      // 移除所有标签的活动状态
+      document.querySelectorAll('.nav-btn').forEach(btn => {
+        btn.classList.remove('tab-active');
+      });
+      
+      // 设置指定标签为活动状态
+      tab.classList.add('tab-active');
+    }
+    
+    // 拍照并识别
+    function captureAndRecognize() {
+      // 显示加载指示器
+      loadingText.textContent = '识别中...';
+      loadingIndicator.classList.remove('hidden');
+      
+      // 停止自动识别
+      stopAutoRecognition();
+      
+      // 从视频捕获一帧
+      const context = canvas.getContext('2d');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
+      // 获取图像数据
+      const imageData = canvas.toDataURL('image/jpeg');
+      
+      // 识别文本
+      recognizeText(imageData).then(text => {
+        // 从识别结果中提取电话号码
+        const phoneNumbers = extractPhoneNumbers(text);
+        
+        if (phoneNumbers.length > 0) {
+          // 显示第一个识别到的电话号码
+          const phoneNumber = phoneNumbers[0];
+          showResult(phoneNumber, imageData);
+          
+          // 播放成功音效
+          if (soundToggle.checked) {
+            playSuccessSound();
+          }
+        } else {
+          // 未识别到电话号码
+          alert('未识别到电话号码，请重试');
+        }
+        
+        // 隐藏加载指示器
+        loadingIndicator.classList.add('hidden');
+        
+        // 如果启用了自动识别，重新开始
+        if (isAutoRecognizing) {
+          startAutoRecognition();
+        }
+      }).catch(error => {
+        console.error('识别失败:', error);
+        alert('识别失败，请重试');
+        loadingIndicator.classList.add('hidden');
+        
+        // 如果启用了自动识别，重新开始
+        if (isAutoRecognizing) {
+          startAutoRecognition();
+        }
+      });
+    }
+    
+    // 开始自动识别
+    function startAutoRecognition() {
+      if (recognitionInterval) {
+        clearInterval(recognitionInterval);
+      }
+      
+      recognitionInterval = setInterval(() => {
+        if (isAutoRecognizing && tesseractWorker) {
+          // 从视频捕获一帧
+          const context = canvas.getContext('2d');
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          context.drawImage(video, 0, 0, canvas.width, canvas.height);
+          
+          // 获取图像数据
+          const imageData = canvas.toDataURL('image/jpeg');
+          
+          // 识别文本
+          recognizeText(imageData).then(text => {
+            // 从识别结果中提取电话号码
+            const phoneNumbers = extractPhoneNumbers(text);
+            
+            if (phoneNumbers.length > 0) {
+              // 停止自动识别
+              stopAutoRecognition();
+              
+              // 显示第一个识别到的电话号码
+              const phoneNumber = phoneNumbers[0];
+              showResult(phoneNumber, imageData);
+              
+              // 播放成功音效
+              if (soundToggle.checked) {
+                playSuccessSound();
+              }
+            }
+          }).catch(error => {
+            console.error('自动识别失败:', error);
+          });
+        }
+      }, 3000); // 每3秒尝试一次识别
+    }
+    
+    // 停止自动识别
+    function stopAutoRecognition() {
+      if (recognitionInterval) {
+        clearInterval(recognitionInterval);
+        recognitionInterval = null;
+      }
+    }
+    
+    // 使用Tesseract.js识别文本
+    async function recognizeText(imageData) {
+      if (!tesseractWorker) {
+        throw new Error('Tesseract worker not initialized');
+      }
+      
+      const result = await tesseractWorker.recognize(imageData, {
+        rectangle: { top: 0, left: 0, width: canvas.width, height: canvas.height }
+      });
+      
+      return result.data.text;
+    }
+    
+    // 从文本中提取电话号码
+    function extractPhoneNumbers(text) {
+      // 中国大陆手机号码正则表达式
+      const mobileRegex = /1[3-9]\d{9}/g;
+      
+      // 中国大陆固定电话正则表达式（支持带区号、空格、短横线的格式）
+      const landlineRegex = /0\d{2,3}[- ]?\d{7,8}|0\d{2,3}\d{7,8}/g;
+      
+      const mobileNumbers = text.match(mobileRegex) || [];
+      const landlineNumbers = text.match(landlineRegex) || [];
+      
+      // 合并结果并去重
+      const allNumbers = [...new Set([...mobileNumbers, ...landlineNumbers])];
+      
+      // 格式化电话号码
+      return allNumbers.map(formatPhoneNumber);
+    }
+    
+    // 格式化电话号码
+    function formatPhoneNumber(number) {
+      // 移除非数字字符
+      const cleanNumber = number.replace(/[^\d]/g, '');
+      
+      // 判断是手机号还是固定电话
+      if (cleanNumber.length === 11) {
+        // 手机号：138-1234-5678
+        return `${cleanNumber.slice(0, 3)}-${cleanNumber.slice(3, 7)}-${cleanNumber.slice(7)}`;
+      } else if (cleanNumber.length >= 10) {
+        // 固定电话：021-6543-2109
+        const areaCode = cleanNumber.slice(0, 3);
+        const rest = cleanNumber.slice(3);
+        return `${areaCode}-${rest.slice(0, 4)}-${rest.slice(4)}`;
+      }
+      
+      return number;
+    }
+    
+    // 显示识别结果
+    function showResult(phoneNumber, imageData) {
+      // 显示识别的电话号码
+      recognizedNumberEl.textContent = phoneNumber;
+      
+      // 查找匹配的联系人
+      findMatchingContact(phoneNumber).then(contact => {
+        if (contact) {
+          // 显示匹配的联系人
+          contactMatchEl.classList.remove('hidden');
+          contactInitialEl.textContent = contact.name.charAt(0);
+          contactNameEl.textContent = contact.name;
+        } else {
+          // 没有匹配的联系人
+          contactMatchEl.classList.add('hidden');
+        }
+        
+        // 保存到历史记录
+        saveToHistory(phoneNumber, contact ? contact.name : null, imageData);
+        
+        // 显示结果页面
+        showPage(resultPage);
+      });
+    }
+    
+    // 查找匹配的联系人
+    function findMatchingContact(phoneNumber) {
+      return new Promise((resolve, reject) => {
+        if (!db) {
+          resolve(null);
+          return;
+        }
+        
+        const transaction = db.transaction(['contacts'], 'readonly');
+        const store = transaction.objectStore('contacts');
+        const index = store.index('phone');
+        
+        // 清理电话号码格式用于匹配
+        const cleanNumber = phoneNumber.replace(/[^\d]/g, '');
+        
+        // 查找可能的匹配
+        const request = index.openCursor();
+        let matchedContact = null;
+        
+        request.onsuccess = (event) => {
+          const cursor = event.target.result;
+          
+          if (cursor) {
+            const contact = cursor.value;
+            const contactCleanNumber = contact.phone.replace(/[^\d]/g, '');
+            
+            // 检查是否匹配（允许部分匹配）
+            if (contactCleanNumber === cleanNumber || 
+                contactCleanNumber.endsWith(cleanNumber.slice(-8)) || 
+                cleanNumber.endsWith(contactCleanNumber.slice(-8))) {
+              matchedContact = contact;
+              cursor.continue();
+            } else {
+              cursor.continue();
+            }
+          } else {
+            resolve(matchedContact);
+          }
+        };
+        
+        request.onerror = (event) => {
+          console.error('查找联系人失败:', event.target.error);
+          resolve(null);
+        };
+      });
+    }
+    
+    // 保存到历史记录
+    function saveToHistory(phoneNumber, contactName, imageData) {
+      if (!db) return;
+      
+      const transaction = db.transaction(['history'], 'readwrite');
+      const store = transaction.objectStore('history');
+      
+      const historyItem = {
+        phoneNumber,
+        contactName,
+        timestamp: new Date(),
+        imageData
+      };
+      
+      const request = store.add(historyItem);
+      
+      request.onsuccess = () => {
+        console.log('历史记录保存成功');
+        // 更新历史记录列表
+        loadHistory();
+      };
+      
+      request.onerror = (event) => {
+        console.error('历史记录保存失败:', event.target.error);
+      };
+    }
+    
+    // 加载历史记录
+    function loadHistory() {
+      if (!db) return;
+      
+      const transaction = db.transaction(['history'], 'readonly');
+      const store = transaction.objectStore('history');
+      const index = store.index('timestamp');
+      
+      // 按时间倒序获取历史记录
+      const request = index.openCursor(null, 'prev');
+      
+      // 清空历史记录列表
+      historyListEl.innerHTML = '';
+      
+      request.onsuccess = (event) => {
+        const cursor = event.target.result;
+        
+        if (cursor) {
+          const historyItem = cursor.value;
+          
+          // 创建历史记录项
+          const historyItemEl = document.createElement('div');
+          historyItemEl.className = 'history-item bg-white rounded-lg shadow p-4 mb-4';
+          
+          // 格式化时间
+          const date = new Date(historyItem.timestamp);
+          const now = new Date();
+          let timeText = '';
+          
+          if (date.toDateString() === now.toDateString()) {
+            timeText = `今天 ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+          } else if (date.toDateString() === new Date(now - 86400000).toDateString()) {
+            timeText = `昨天 ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+          } else {
+            timeText = `${date.getMonth() + 1}月${date.getDate()}日 ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+          }
+          
+          // 设置历史记录项内容
+          historyItemEl.innerHTML = `
+            <div class="flex justify-between items-start">
+              <div>
+                <p class="text-lg font-semibold">${historyItem.phoneNumber}</p>
+                <p class="text-gray-600">${historyItem.contactName || '未知联系人'}</p>
+              </div>
+              <p class="text-gray-500 text-sm">${timeText}</p>
+            </div>
+          `;
+          
+          // 添加点击事件
+          historyItemEl.addEventListener('click', () => {
+            // 显示结果页面
+            recognizedNumberEl.textContent = historyItem.phoneNumber;
+            
+            if (historyItem.contactName) {
+              contactMatchEl.classList.remove('hidden');
+              contactInitialEl.textContent = historyItem.contactName.charAt(0);
+              contactNameEl.textContent = historyItem.contactName;
+            } else {
+              contactMatchEl.classList.add('hidden');
+            }
+            
+            showPage(resultPage);
+          });
+          
+          // 添加长按事件（删除）
+          let pressTimer;
+          
+          historyItemEl.addEventListener('mousedown', (e) => {
+            pressTimer = setTimeout(() => {
+              if (confirm('确定要删除这条历史记录吗？')) {
+                deleteHistoryItem(historyItem.id);
+                historyItemEl.remove();
+              }
+            }, 800);
+          });
+          
+          historyItemEl.addEventListener('mouseup', () => {
+            clearTimeout(pressTimer);
+          });
+          
+          historyItemEl.addEventListener('mouseleave', () => {
+            clearTimeout(pressTimer);
+          });
+          
+          historyItemEl.addEventListener('touchstart', (e) => {
+            pressTimer = setTimeout(() => {
+              if (confirm('确定要删除这条历史记录吗？')) {
+                deleteHistoryItem(historyItem.id);
+                historyItemEl.remove();
+              }
+            }, 800);
+          });
+          
+          historyItemEl.addEventListener('touchend', () => {
+            clearTimeout(pressTimer);
+          });
+          
+          // 添加到历史记录列表
+          historyListEl.appendChild(historyItemEl);
+          
+          cursor.continue();
+        } else {
+          // 如果没有历史记录，显示提示
+          if (historyListEl.children.length === 0) {
+            const emptyEl = document.createElement('div');
+            emptyEl.className = 'text-center text-gray-500 py-8';
+            emptyEl.textContent = '暂无历史记录';
+            historyListEl.appendChild(emptyEl);
+          }
+        }
+      };
+      
+      request.onerror = (event) => {
+        console.error('加载历史记录失败:', event.target.error);
+      };
+    }
+    
+    // 删除历史记录项
+    function deleteHistoryItem(id) {
+      if (!db) return;
+      
+      const transaction = db.transaction(['history'], 'readwrite');
+      const store = transaction.objectStore('history');
+      
+      const request = store.delete(id);
+      
+      request.onsuccess = () => {
+        console.log('历史记录删除成功');
+      };
+      
+      request.onerror = (event) => {
+        console.error('历史记录删除失败:', event.target.error);
+      };
+    }
+    
+    // 清除所有历史记录
+    function clearHistory() {
+      if (confirm('确定要清除所有历史记录吗？此操作不可恢复。')) {
+        if (!db) return;
+        
+        const transaction = db.transaction(['history'], 'readwrite');
+        const store = transaction.objectStore('history');
+        
+        const request = store.clear();
+        
+        request.onsuccess = () => {
+          console.log('历史记录清除成功');
+          loadHistory();
+        };
+        
+        request.onerror = (event) => {
+          console.error('历史记录清除失败:', event.target.error);
+        };
+      }
+    }
+    
+    // 导入通讯录
+    function importContacts() {
+      // 检查是否支持Contacts API
+      if (!navigator.contacts) {
+        alert('您的浏览器不支持通讯录访问');
+        return;
+      }
+      
+      // 请求通讯录权限
+      navigator.contacts.requestPermission().then(permission => {
+        if (permission === 'granted') {
+          // 显示导入进度
+          importProgress.classList.remove('hidden');
+          
+          // 模拟导入进度
+          let progress = 0;
+          const interval = setInterval(() => {
+            progress += 5;
+            progressBar.style.width = `${progress}%`;
+            progressText.textContent = `导入中... ${progress}%`;
+            
+            if (progress >= 100) {
+              clearInterval(interval);
+              setTimeout(() => {
+                importProgress.classList.add('hidden');
+                alert('通讯录导入成功');
+              }, 500);
+            }
+          }, 100);
+          
+          // 实际导入通讯录（这里使用模拟数据）
+          importMockContacts();
+        } else {
+          alert('通讯录权限被拒绝');
+        }
+      });
+    }
+    
+    // 导入模拟通讯录数据
+    function importMockContacts() {
+      if (!db) return;
+      
+      const mockContacts = [
+        { id: '1', name: '张三', phone: '13812345678' },
+        { id: '2', name: '李四', phone: '13987654321' },
+        { id: '3', name: '王五', phone: '02165432109' },
+        { id: '4', name: '赵六', phone: '13765432109' },
+        { id: '5', name: '钱七', phone: '02012345678' }
+      ];
+      
+      const transaction = db.transaction(['contacts'], 'readwrite');
+      const store = transaction.objectStore('contacts');
+      
+      mockContacts.forEach(contact => {
+        const request = store.put(contact);
+        
+        request.onsuccess = () => {
+          console.log(`联系人 ${contact.name} 导入成功`);
+        };
+        
+        request.onerror = (event) => {
+          console.error(`联系人 ${contact.name} 导入失败:`, event.target.error);
+        };
+      });
+    }
+    
+    // 保存到通讯录
+    function saveToContacts(number) {
+      const name = prompt('请输入联系人姓名:');
+      
+      if (name) {
+        if (!db) return;
+        
+        const transaction = db.transaction(['contacts'], 'readwrite');
+        const store = transaction.objectStore('contacts');
+        
+        const contact = {
+          id: Date.now().toString(),
+          name,
+          phone: number.replace(/[^\d]/g, '')
+        };
+        
+        const request = store.add(contact);
+        
+        request.onsuccess = () => {
+          alert('联系人保存成功');
+          // 更新结果页面中的联系人信息
+          contactMatchEl.classList.remove('hidden');
+          contactInitialEl.textContent = name.charAt(0);
+          contactNameEl.textContent = name;
+          
+          // 更新历史记录中的联系人信息
+          updateHistoryContact(number, name);
+        };
+        
+        request.onerror = (event) => {
+          console.error('联系人保存失败:', event.target.error);
+          alert('联系人保存失败');
+        };
+      }
+    }
+    
+    // 更新历史记录中的联系人信息
+    function updateHistoryContact(phoneNumber, contactName) {
+      if (!db) return;
+      
+      const transaction = db.transaction(['history'], 'readwrite');
+      const store = transaction.objectStore('history');
+      
+      const request = store.openCursor();
+      
+      request.onsuccess = (event) => {
+        const cursor = event.target.result;
+        
+        if (cursor) {
+          const historyItem = cursor.value;
+          
+          if (historyItem.phoneNumber === phoneNumber && !historyItem.contactName) {
+            historyItem.contactName = contactName;
+            cursor.update(historyItem);
+          }
+          
+          cursor.continue();
+        }
+      };
+    }
+    
+    // 切换闪光灯
+    function toggleFlash() {
+      if (!stream) return;
+      
+      const videoTracks = stream.getVideoTracks();
+      
+      if (videoTracks.length > 0) {
+        const track = videoTracks[0];
+        
+        if (track.getCapabilities().torch) {
+          track.applyConstraints({
+            advanced: [{ torch: !track.getSettings().torch }]
+          }).then(() => {
+            // 更新闪光灯按钮状态
+            const isTorchOn = track.getSettings().torch;
+            flashBtn.innerHTML = isTorchOn ? 
+              '<i class="fa fa-bolt text-yellow-300"></i>' : 
+              '<i class="fa fa-bolt"></i>';
+          }).catch(error => {
+            console.error('切换闪光灯失败:', error);
+          });
+        } else {
+          alert('您的设备不支持闪光灯');
+        }
+      }
+    }
+    
+    // 播放成功音效
+    function playSuccessSound() {
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      oscillator.frequency.value = 800;
+      oscillator.type = 'sine';
+      
+      gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+      
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.3);
+    }
+  </script>
+
+</body></html>
